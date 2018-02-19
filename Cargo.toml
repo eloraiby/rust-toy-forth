@@ -1,0 +1,6 @@
+[package]
+name = "forth"
+version = "0.1.0"
+authors = ["Wael El Oraiby <wael.eloraiby@gmail.com>"]
+
+[dependencies]
