@@ -324,13 +324,20 @@ impl VM {
 
     fn repl(&mut self) {
         loop {
-            self.consume_token();
-            loop {
-                match (self.ret.len(), self.dead) {
-                    (0, _) | (_, true) => break,
-                    _ => self.next_word()
-                }
+            let res = self.consume_token();
+            match res {
+                EvalResult::None =>
+                    loop {
+                        match (self.ret.len(), self.dead) {
+                            (0, _) | (_, true) => break,
+                            _ => self.next_word()
+                        }
+                    },
+                EvalResult::StackUnderflow => println!("Error: Stack underflow"),
+                EvalResult::WordNotFound(w) => println!("Error: Word {} not found!", w),
+                EvalResult::ReturnStackUnderflow => println!("Error: return stack underflow")
             }
+
             if self.dead { break; }
         }
     }
