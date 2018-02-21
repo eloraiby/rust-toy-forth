@@ -7,6 +7,7 @@ pub enum EvalResult {
     StackUnderflow,
     ReturnStackUnderflow,
     WordNotFound(String),
+    EmptyToken,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -75,7 +76,6 @@ impl VM {
         self.i_2_w.push(Word::Native { is_macro : is_macro, f : f});
         self.i_2_n.push(name.clone());
         self.n_2_i.insert(name.clone(), idx);
-        println!("registering {} @ {}", name, idx);
     }
 
     pub fn add_stream(&mut self, sr: StreamReader) {
@@ -84,7 +84,6 @@ impl VM {
 
     fn next_word(&mut self) {
         let word = self.code[self.ip];
-        println!("{} - {}", self.ip, word);
         match word {
             OpCode::Cond(ip)   => { let v = self.stack.pop().unwrap(); if v != 0 { self.ip = ip } },
             OpCode::Jmp(ip)    => { self.ip = ip },
@@ -106,49 +105,57 @@ impl VM {
 
     fn consume_token(&mut self) -> EvalResult {
         let tok = self.read_token();
-        println!("reading {} - CM {}", tok.clone(), self.is_cm);
-        match (self.is_cm, VM::is_number(&tok), self.n_2_i.contains_key(&tok)) {
-            // handle number
-            (true,  true, _    ) => { self.code.push(OpCode::PushUSize(tok.parse::<usize>().unwrap())); EvalResult::None },
-            (false, true, _    ) => { self.stack.push(tok.parse::<usize>().unwrap()); EvalResult::None },
+        match tok {
+            Some(tok) => {
+                match (self.is_cm, VM::is_number(&tok), self.n_2_i.contains_key(&tok)) {
+                    // handle number
+                    (true,  true, _    ) => { self.code.push(OpCode::PushUSize(tok.parse::<usize>().unwrap())); EvalResult::None },
+                    (false, true, _    ) => { self.stack.push(tok.parse::<usize>().unwrap()); EvalResult::None },
 
-            // word
-            (true,  _,    true ) => {
-                let wid = self.n_2_i[&tok];
-                match self.i_2_w[wid] {
-                    Word::Interp { is_macro: true, fip } => { self.ip = fip; EvalResult::None },
-                    Word::Native { is_macro: true, f }   => f(self),
-                    _                                    => { self.code.push(OpCode::Call(wid)); EvalResult::None }, 
+                    // word
+                    (true,  _,    true ) => {
+                        let wid = self.n_2_i[&tok];
+                        match self.i_2_w[wid] {
+                            Word::Interp { is_macro: true, fip } => { self.ret.push(self.ip); self.ip = fip; self.run(); self.ret.pop(); EvalResult::None },
+                            Word::Native { is_macro: true, f }   => { f(self) },
+                            _                                    => { self.code.push(OpCode::Call(wid)); EvalResult::None }, 
+                        }
+                    },
+                    (false, _,    true ) => {
+                        let wid = self.n_2_i[&tok];
+                        match self.i_2_w[wid] {
+                            Word::Interp { is_macro: _, fip }    => { self.ret.push(self.ip); self.ip = fip; self.run(); self.ret.pop(); EvalResult::None },
+                            Word::Native { is_macro: _, f }      => f(self),
+                        }
+                    },
+
+                    // the word doesn't exist
+                    (_,     _,    false) =>
+                        EvalResult::WordNotFound(tok),
                 }
             },
-            (false, _,    true ) => {
-                let wid = self.n_2_i[&tok];
-                match self.i_2_w[wid] {
-                    Word::Interp { is_macro: _, fip }    => { self.ip = fip; EvalResult::None },
-                    Word::Native { is_macro: _, f }      => f(self),
-                }
-            },
-
-            // the word doesn't exist
-            (_,     _,    false) =>
-                EvalResult::WordNotFound(tok),
+            None => EvalResult::None,
         }
+    }
+
+    pub fn run(&mut self) {
+        loop {
+            match (self.ret.len(), self.dead) {
+                (0, _) | (_, true) => break,
+                _ => self.next_word()
+            }
+        }      
     }
 
     pub fn repl(&mut self) {
         loop {
             let res = self.consume_token();
             match res {
-                EvalResult::None =>
-                    loop {
-                        match (self.ret.len(), self.dead) {
-                            (0, _) | (_, true) => break,
-                            _ => self.next_word()
-                        }
-                    },
+                EvalResult::None => self.run(),
                 EvalResult::StackUnderflow          => println!("Error: Stack underflow"),
                 EvalResult::WordNotFound(w)         => println!("Error: Word {} not found!", w),
-                EvalResult::ReturnStackUnderflow    => println!("Error: return stack underflow")
+                EvalResult::ReturnStackUnderflow    => println!("Error: return stack underflow"),
+                EvalResult::EmptyToken              => println!("Error: Empty token"),
             }
 
             if self.dead { break; }
@@ -166,28 +173,7 @@ impl VM {
         }
         true
     }
-/*
-    fn read_token_from_stream(sr: &mut StreamReader) -> String {
-        let mut token = String::new();
-        while !sr.is_eos() {
-            match sr.read_char() {
-                ' ' | '\n' | '\t' => break,
-                ch => token.push(ch)
-            }
-        }
 
-        token
-    }
-
-    pub fn read_token(&mut self) -> String {
-        let stream = 
-            match self.streams[self.curr_sr].is_eos() {
-                false => &mut self.streams[self.curr_sr],
-                true  => { self.curr_sr += 1; &mut self.streams[self.curr_sr] }
-            };
-        VM::read_token_from_stream(stream)
-    }
-*/
     pub fn read_stream_char(&mut self) -> char {
         let stream = 
             match self.streams[self.curr_sr].is_eos() {
@@ -197,7 +183,7 @@ impl VM {
         stream.read_char()
     }
 
-    pub fn read_token(&mut self) -> String {
+    pub fn read_token(&mut self) -> Option<String> {
         let mut token = String::new();
         loop {
 
@@ -206,7 +192,8 @@ impl VM {
                 ch => token.push(ch)
             }
         }
-        token       
+        if token.len() == 0 { None }
+        else { Some(token) }
     }
 
     pub fn read_char(vm: &mut VM) -> EvalResult {

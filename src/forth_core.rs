@@ -10,21 +10,37 @@ struct NativeEntry {
 
 fn define_word(vm: &mut VM) -> EvalResult {
     let token   = vm.read_token();
-    vm.is_cm    = true;
-    let wid     = vm.i_2_w.len();
-    vm.i_2_w.push(Word::Interp { is_macro: false, fip: vm.code.len() });
-    vm.i_2_n.push(token.clone());
-    vm.n_2_i.insert(token, wid);
-    EvalResult::None
+    match token {
+        Some(token) => {
+            vm.is_cm    = true;
+            let wid     = vm.i_2_w.len();
+            vm.i_2_w.push(Word::Interp { is_macro: false, fip: vm.code.len() });
+            vm.i_2_n.push(token.clone());
+            vm.n_2_i.insert(token, wid);
+            EvalResult::None
+        },
+        None => EvalResult::EmptyToken
+    }
 }
 
 fn define_immediate(vm: &mut VM) -> EvalResult {
     let token   = vm.read_token();
-    vm.is_cm    = false;
-    let wid     = vm.i_2_w.len();
-    vm.i_2_w.push(Word::Interp { is_macro: true, fip: vm.code.len() });
-    vm.i_2_n.push(token.clone());
-    vm.n_2_i.insert(token, wid);
+    match token {
+        Some(token) => {
+            vm.is_cm    = true;
+            let wid     = vm.i_2_w.len();
+            vm.i_2_w.push(Word::Interp { is_macro: true, fip: vm.code.len() });
+            vm.i_2_n.push(token.clone());
+            vm.n_2_i.insert(token, wid);
+            EvalResult::None
+        },
+        None => EvalResult::EmptyToken,
+    }
+}
+
+fn eofn(vm: &mut VM) -> EvalResult {
+    vm.code.push(OpCode::Ret);
+    vm.is_cm = false;
     EvalResult::None
 }
 
@@ -78,9 +94,13 @@ fn cm_get(vm: &mut VM) -> EvalResult {
 
 fn get_addr(vm: &mut VM) -> EvalResult {
     let tok = vm.read_token();
-    match vm.n_2_i.contains_key(&tok) {
-        true => { vm.stack.push(vm.n_2_i[&tok]); EvalResult::None },
-        false => EvalResult::WordNotFound(tok)
+    match tok {
+        Some (tok) =>
+            match vm.n_2_i.contains_key(&tok) {
+                true => { vm.stack.push(vm.n_2_i[&tok]); EvalResult::None },
+                false => EvalResult::WordNotFound(tok)
+            },
+        None => EvalResult::EmptyToken,
     }
 }
 
@@ -184,10 +204,12 @@ fn modulo(vm: &mut VM) -> EvalResult {
     }
 }
 
-static CORE_ENTRIES : [NativeEntry; 22] = [
+
+static CORE_ENTRIES : [NativeEntry; 23] = [
     NativeEntry { name : "quit",    is_macro:  true, f: quit                 },  
     NativeEntry { name : ":",       is_macro:  true, f: define_word          }, 
-    NativeEntry { name : "!",       is_macro:  true, f: define_immediate     }, 
+    NativeEntry { name : "!",       is_macro:  true, f: define_immediate     },
+    NativeEntry { name : ";",       is_macro:  true, f: eofn                 }, 
     NativeEntry { name : "cm.set",  is_macro:  true, f: cm_set               }, 
     NativeEntry { name : "cm.get",  is_macro:  true, f: cm_get               }, 
     NativeEntry { name : "cm.true", is_macro:  true, f: cm_set_true          }, 
