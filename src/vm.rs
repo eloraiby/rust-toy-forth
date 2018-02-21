@@ -106,6 +106,7 @@ impl VM {
 
     fn consume_token(&mut self) -> EvalResult {
         let tok = self.read_token();
+        println!("reading {} - CM {}", tok.clone(), self.is_cm);
         match (self.is_cm, VM::is_number(&tok), self.n_2_i.contains_key(&tok)) {
             // handle number
             (true,  true, _    ) => { self.code.push(OpCode::PushUSize(tok.parse::<usize>().unwrap())); EvalResult::None },
@@ -115,9 +116,9 @@ impl VM {
             (true,  _,    true ) => {
                 let wid = self.n_2_i[&tok];
                 match self.i_2_w[wid] {
-                    Word::Interp { is_macro: true, fip } => { self.ret.push(0xFFFFFFFF); self.ip = fip; EvalResult::None },
+                    Word::Interp { is_macro: true, fip } => { self.ip = fip; EvalResult::None },
                     Word::Native { is_macro: true, f }   => f(self),
-                    _                                    => { self.ret.push(0xFFFFFFFF); self.code.push(OpCode::Call(wid)); EvalResult::None }, 
+                    _                                    => { self.code.push(OpCode::Call(wid)); EvalResult::None }, 
                 }
             },
             (false, _,    true ) => {
@@ -129,7 +130,8 @@ impl VM {
             },
 
             // the word doesn't exist
-            (_,     _,    false) => EvalResult::WordNotFound(tok),
+            (_,     _,    false) =>
+                EvalResult::WordNotFound(tok),
         }
     }
 
@@ -164,7 +166,7 @@ impl VM {
         }
         true
     }
-
+/*
     fn read_token_from_stream(sr: &mut StreamReader) -> String {
         let mut token = String::new();
         while !sr.is_eos() {
@@ -184,6 +186,27 @@ impl VM {
                 true  => { self.curr_sr += 1; &mut self.streams[self.curr_sr] }
             };
         VM::read_token_from_stream(stream)
+    }
+*/
+    pub fn read_stream_char(&mut self) -> char {
+        let stream = 
+            match self.streams[self.curr_sr].is_eos() {
+                false => &mut self.streams[self.curr_sr],
+                true  => { self.curr_sr += 1; &mut self.streams[self.curr_sr] }
+            };
+        stream.read_char()
+    }
+
+    pub fn read_token(&mut self) -> String {
+        let mut token = String::new();
+        loop {
+
+            match self.read_stream_char() {
+                ' ' | '\n' | '\t' => break,
+                ch => token.push(ch)
+            }
+        }
+        token       
     }
 
     pub fn read_char(vm: &mut VM) -> EvalResult {
